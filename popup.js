@@ -88,6 +88,40 @@ document.addEventListener("DOMContentLoaded", () => {
   openLinkedIn.addEventListener("click", () => {
     chrome.tabs.create({ url: "https://www.linkedin.com/feed/" });
   });
+
+  // ── Export Suggestion Log ─────────────────────────
+  const exportBtn = document.getElementById("exportSuggestionsBtn");
+  exportBtn.addEventListener("click", () => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs[0];
+      if (tab && tab.url && tab.url.includes("linkedin.com")) {
+        chrome.tabs.sendMessage(tab.id, { type: "GET_SUGGESTION_LOG" }, (res) => {
+          if (chrome.runtime.lastError || !res || !res.log) {
+            exportBtn.textContent = "No data — open LinkedIn first";
+            setTimeout(() => { exportBtn.innerHTML = '<svg style="width:13px;height:13px;vertical-align:-2px;margin-right:4px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export Suggestion Log (JSON)'; }, 2000);
+            return;
+          }
+          if (res.log.length === 0) {
+            exportBtn.textContent = "No suggestions yet";
+            setTimeout(() => { exportBtn.innerHTML = '<svg style="width:13px;height:13px;vertical-align:-2px;margin-right:4px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export Suggestion Log (JSON)'; }, 2000);
+            return;
+          }
+          const blob = new Blob([JSON.stringify(res.log, null, 2)], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "lai-suggestions-" + new Date().toISOString().slice(0, 10) + ".json";
+          a.click();
+          URL.revokeObjectURL(url);
+          exportBtn.textContent = "Exported " + res.log.length + " entries!";
+          setTimeout(() => { exportBtn.innerHTML = '<svg style="width:13px;height:13px;vertical-align:-2px;margin-right:4px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export Suggestion Log (JSON)'; }, 2000);
+        });
+      } else {
+        exportBtn.textContent = "Open LinkedIn tab first";
+        setTimeout(() => { exportBtn.innerHTML = '<svg style="width:13px;height:13px;vertical-align:-2px;margin-right:4px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export Suggestion Log (JSON)'; }, 2000);
+      }
+    });
+  });
   // ── Save profile ──────────────────────────────
   saveProfileBtn.addEventListener("click", () => {
     chrome.storage.local.set({

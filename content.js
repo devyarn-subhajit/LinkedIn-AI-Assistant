@@ -710,6 +710,9 @@
   /** Suggestion cache — avoids redundant API calls for same context */
   const suggestionCache = new Map();
 
+  /** Suggestion log — tracks all generated suggestions with context for export */
+  const suggestionLog = [];
+
   function makeCacheKey(inputType, contextText) {
     // Simple hash: type + first 300 chars of context (enough to distinguish)
     return inputType + "::" + (contextText || "").slice(0, 300).trim();
@@ -1504,6 +1507,13 @@
 
       /** Fill the chosen text into the LinkedIn input */
       function useText(textToUse) {
+        // Mark which suggestion was used in the log
+        for (let i = suggestionLog.length - 1; i >= 0; i--) {
+          if (suggestionLog[i].used === null) {
+            suggestionLog[i].used = textToUse;
+            break;
+          }
+        }
         dropdown.style.display = "none";
         restoreLinkedInDialog();
         anchor.click();
@@ -1828,6 +1838,16 @@
           conversationMemory.push({ role: "bot", text: item.text });
         });
 
+        // Log suggestion for export
+        suggestionLog.push({
+          timestamp: new Date().toISOString(),
+          type: inputType,
+          context: contextText.slice(0, 500),
+          customPrompt: customPrompt || null,
+          suggestions: items.map(i => ({ label: i.label, text: i.text })),
+          used: null,
+        });
+
         // Update header text
         if (headerSpan) headerSpan.innerHTML = headerText;
 
@@ -2081,6 +2101,15 @@
       scan();
       setTimeout(scan, 500);
       setTimeout(scan, 1500);
+      sendResponse({ ok: true });
+      return true;
+    }
+    if (msg.type === "GET_SUGGESTION_LOG") {
+      sendResponse({ log: suggestionLog });
+      return true;
+    }
+    if (msg.type === "CLEAR_SUGGESTION_LOG") {
+      suggestionLog.length = 0;
       sendResponse({ ok: true });
       return true;
     }
