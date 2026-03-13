@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LinkedIn AI Assistant</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 300px;
+      max-height: 580px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(0,0,0,.18) transparent;
+      font-family: "Inter", "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #1d2226;
+      background: #f9fafb;
+    }
+
+    body::-webkit-scrollbar { width: 3px; }
+    body::-webkit-scrollbar-track { background: transparent; }
+    body::-webkit-scrollbar-thumb { background: rgba(0,0,0,.18); border-radius: 3px; }
+    body::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,.3); }
+
+    .popup-header {
+      background: linear-gradient(135deg, #0a66c2 0%, #004182 100%);
+      color: #fff;
+      padding: 14px 16px;
+      text-align: center;
+    }
+
+    .popup-header h1 {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 1px;
+    }
+
+    .popup-header p {
+      font-size: 10.5px;
+      opacity: 0.8;
+      font-weight: 400;
+    }
+
+    .popup-body {
+      padding: 10px 12px;
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      margin-bottom: 8px;
+      font-size: 12px;
+      background: #fff;
+      border-radius: 6px;
+      border: 1px solid #e8e8e8;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .status-dot.green { background: #057642; }
+    .status-dot.red { background: #cc1016; }
+    .status-dot.yellow { background: #b24020; }
+
+    .info-card {
+      background: #fff;
+      border: 1px solid #e8e8e8;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+    }
+
+    .info-card h3 {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #0a66c2;
+      margin-bottom: 6px;
+      font-weight: 700;
+    }
+
+    .info-card ul {
+      list-style: none;
+      font-size: 11.5px;
+      line-height: 1.6;
+      color: #444;
+    }
+
+    .info-card ul li {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .info-card ul li::before {
+      content: "✓";
+      color: #057642;
+      font-weight: bold;
+      font-size: 11px;
+    }
+
+    .popup-btn {
+      width: 100%;
+      padding: 9px 14px;
+      border: none;
+      border-radius: 6px;
+      background: #0a66c2;
+      color: #fff;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+
+    .popup-btn:hover {
+      background: #004182;
+    }
+
+    .popup-btn:active {
+      transform: scale(0.98);
+    }
+
+    .popup-btn.secondary {
+      background: #fff;
+      color: #0a66c2;
+      border: 1.5px solid #0a66c2;
+      margin-top: 4px;
+    }
+
+    .popup-btn.secondary:hover {
+      background: #eef3f8;
+    }
+
+    .popup-footer {
+      padding: 8px 12px;
+      border-top: 1px solid #e8e8e8;
+      text-align: center;
+      font-size: 10px;
+      color: #aaa;
+      background: #fff;
+    }
+
+    .config-section {
+      margin-top: 0;
+    }
+
+    .config-section label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      margin-bottom: 3px;
+      color: #555;
+    }
+
+    .config-section select,
+    .config-section input {
+      width: 100%;
+      padding: 7px 9px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      font-size: 12px;
+      margin-bottom: 8px;
+      outline: none;
+      background: #f9fafb;
+      transition: border-color 0.15s;
+    }
+
+    .config-section select:focus,
+    .config-section input:focus {
+      border-color: #0a66c2;
+      background: #fff;
+    }
+
+    .save-msg {
+      font-size: 11px;
+      color: #057642;
+      text-align: center;
+      margin-top: 3px;
+      display: none;
+    }
+
+    .save-msg.show {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="popup-header">
+    <h1><svg style="width:18px;height:18px;vertical-align:-3px;margin-right:4px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>LinkedIn AI Assistant</h1>
+    <p>AI-powered engagement for your team</p>
+    <p style="font-size:9.5px;opacity:0.65;margin-top:2px;">Developed by Devyarn</p>
+  </div>
+
+  <div class="popup-body">
+    <div class="status-row">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Checking…</span>
+    </div>
+
+    <div class="info-card config-section">
+      <h3>Settings</h3>
+
+      <label for="providerSelect">AI Provider</label>
+      <select id="providerSelect">
+        <option value="openai">OpenAI (GPT)</option>
+        <option value="claude">Claude (Anthropic)</option>
+        <option value="gemini">Gemini (Google)</option>
+      </select>
+
+      <label for="apiKeyInput">API Key</label>
+      <input type="password" id="apiKeyInput" placeholder="Paste your API key here" autocomplete="off" />
+
+      <label for="languageSelect">Suggestion Language</label>
+      <select id="languageSelect">
+        <option value="English">English</option>
+        <option value="Hindi">Hindi</option>
+        <option value="Bengali">Bengali</option>
+        <option value="Spanish">Spanish</option>
+        <option value="French">French</option>
+        <option value="German">German</option>
+        <option value="Portuguese">Portuguese</option>
+        <option value="Arabic">Arabic</option>
+        <option value="Chinese">Chinese</option>
+        <option value="Japanese">Japanese</option>
+        <option value="Korean">Korean</option>
+        <option value="Russian">Russian</option>
+        <option value="Italian">Italian</option>
+        <option value="Dutch">Dutch</option>
+        <option value="Turkish">Turkish</option>
+        <option value="Urdu">Urdu</option>
+      </select>
+
+      <label for="myLanguageSelect">Your Language (translation)</label>
+      <select id="myLanguageSelect">
+        <option value="">None (no translation)</option>
+        <option value="Bengali">Bengali (বাংলা)</option>
+        <option value="Hindi">Hindi (हिन्दी)</option>
+        <option value="English">English</option>
+        <option value="Spanish">Spanish</option>
+        <option value="French">French</option>
+        <option value="German">German</option>
+        <option value="Arabic">Arabic</option>
+        <option value="Chinese">Chinese</option>
+        <option value="Japanese">Japanese</option>
+        <option value="Korean">Korean</option>
+        <option value="Russian">Russian</option>
+        <option value="Urdu">Urdu</option>
+        <option value="Turkish">Turkish</option>
+      </select>
+
+      <button class="popup-btn" id="saveBtn">Save Settings</button>
+      <div class="save-msg" id="saveMsg">Settings saved! Reload LinkedIn tab to apply.</div>
+    </div>
+
+    <div class="info-card config-section">
+      <h3>Your Profile &amp; Company</h3>
+
+      <label for="userNameInput">Your Name</label>
+      <input type="text" id="userNameInput" placeholder="e.g. Subhajit Karmakar" />
+
+      <label for="userRoleInput">Your Role</label>
+      <input type="text" id="userRoleInput" placeholder="e.g. Founder, CEO, Developer" />
+
+      <label for="companyNameInput">Company Name</label>
+      <input type="text" id="companyNameInput" placeholder="e.g. Devyarn" />
+
+      <label for="companyServicesInput">Services (comma-separated)</label>
+      <input type="text" id="companyServicesInput" placeholder="e.g. Websites, Web Apps, SaaS, CRM, Automation" />
+
+      <label for="companyDescInput">Company Description (1-2 lines)</label>
+      <input type="text" id="companyDescInput" placeholder="e.g. Small dev team building custom digital solutions" />
+
+      <label for="companyWebsiteInput">Website URL</label>
+      <input type="url" id="companyWebsiteInput" placeholder="e.g. https://devyarn.com" />
+
+      <label for="companyPortfolioInput">Portfolio / Case Studies URL</label>
+      <input type="url" id="companyPortfolioInput" placeholder="e.g. https://devyarn.com/portfolio" />
+
+      <button class="popup-btn" id="saveProfileBtn">Save Profile</button>
+      <div class="save-msg" id="profileSaveMsg">Profile saved! Reload LinkedIn tab to apply.</div>
+    </div>
+
+    <button class="popup-btn secondary" id="openLinkedIn">Open LinkedIn</button>
+
+    <button class="popup-btn secondary" id="aiUsageBtn" style="margin-top: 4px;">
+      <svg style="width:13px;height:13px;vertical-align:-2px;margin-right:4px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>AI Usage &amp; Billing Dashboard
+    </button>
+
+    <button class="popup-btn secondary" id="clearStorageBtn" style="margin-top: 4px; font-size: 11px; padding: 6px 10px; color: #cc1016; border-color: #cc1016;">
+      <svg style="width:12px;height:12px;vertical-align:-2px;margin-right:3px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Clear All Stored Data
+    </button>
+  </div>
+
+  <div class="popup-footer">
+    v2.1.0 · LinkedIn AI Assistant<br/>
+    <span style="font-size:9.5px;color:#666;">Developed with ♥ by <a href="https://www.devyarn.com" target="_blank" rel="noopener noreferrer" style="color:#0a66c2;text-decoration:none;font-weight:600;">Devyarn</a></span><br/>
+    <span style="font-size:8.5px;color:#999;">Web Development · Mobile Apps · AI/ML · SaaS Products</span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
