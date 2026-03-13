@@ -121,8 +121,8 @@ const Storage = (() => {
     if (!data || !data.contactName) return;
     const id = "conv_" + _contactId(data.contactName);
 
-    // Only keep last 20 messages to avoid bloat
-    const messages = (data.messages || []).slice(-20).map((m) => ({
+    // Keep last 50 messages for full conversation context across sessions
+    const messages = (data.messages || []).slice(-50).map((m) => ({
       sender: m.sender || "Unknown",
       text: (m.text || "").slice(0, 1000),
       timestamp: m.timestamp || null,

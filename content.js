@@ -301,6 +301,34 @@
   }
 
   /**
+   * Scroll up in a chat container to trigger LinkedIn to load older messages.
+   * Returns a promise that resolves when scrolling is complete.
+   */
+  async function scrollToLoadFullChatHistory(bubble) {
+    if (!bubble) return;
+    const scrollContainer = bubble.querySelector(".msg-s-message-list-content")
+      || bubble.querySelector("[class*='message-list']")
+      || bubble.querySelector("ul[class*='msg-s-message-list']")
+      || bubble.querySelector(".msg-s-message-list");
+    if (!scrollContainer) return;
+
+    // Scroll to the top in steps to trigger lazy loading of older messages
+    const maxScrollAttempts = 8;
+    let prevHeight = scrollContainer.scrollHeight;
+    for (let i = 0; i < maxScrollAttempts; i++) {
+      scrollContainer.scrollTop = 0;
+      // Wait for LinkedIn to load more messages
+      await new Promise(r => setTimeout(r, 400));
+      const newHeight = scrollContainer.scrollHeight;
+      // If scroll height didn't change, we've loaded everything
+      if (newHeight === prevHeight) break;
+      prevHeight = newHeight;
+    }
+    // Scroll back to bottom so user doesn't notice
+    scrollContainer.scrollTop = scrollContainer.scrollHeight;
+  }
+
+  /**
    * Get chat context from a messaging bubble.
    * Handles both overlay chat bubbles and full-page messaging.
    */
@@ -374,51 +402,78 @@
     // Deduplication: track DOM elements already scraped to avoid multi-match selectors
     const scrapedEls = new WeakSet();
 
-    // Strategy 1: Individual message events (most common LinkedIn structure)
-    const eventItems = bubble.querySelectorAll(
-      ".msg-s-event-listitem, .msg-s-message-list__event"
-    );
+    // Strategy 1: Process each message <li> in the chat list
+    // Target only <li> elements to avoid double-processing with inner <div>s
+    const messageLis = bubble.querySelectorAll("li.msg-s-message-list__event");
+    const contactNameFromHeader = nameEl ? nameEl.innerText.trim().split("\n")[0].trim() : "Contact";
 
-    if (eventItems.length > 0) {
+    if (messageLis.length > 0) {
       let lastSender = "Unknown";
-      eventItems.forEach((item) => {
-        if (scrapedEls.has(item)) return;
-        scrapedEls.add(item);
-        // Check for date separator before this message
-        let prevSibling = item.previousElementSibling;
-        if (prevSibling) {
-          const dateEl = prevSibling.querySelector("[class*='msg-s-message-list__time-heading'], [class*='time-heading'], time")
-            || (prevSibling.classList && (prevSibling.className.includes("time-heading") || prevSibling.className.includes("separator")) ? prevSibling : null);
-          if (dateEl) {
-            const dateText = dateEl.innerText.trim();
-            if (dateText && dateText.length > 0 && dateText.length < 40) {
-              messages.push(`[${dateText}]`);
-            }
+      messageLis.forEach((li) => {
+        if (scrapedEls.has(li)) return;
+        scrapedEls.add(li);
+
+        // Also mark inner event divs as scraped to prevent Strategy 2/3 duplicates
+        const innerDivs = li.querySelectorAll(".msg-s-event-listitem, [class*='msg-s-event-listitem']");
+        innerDivs.forEach((d) => scrapedEls.add(d));
+
+        // Find the inner event item div (the actual message container)
+        const eventDiv = li.querySelector(".msg-s-event-listitem, [class*='msg-s-event-listitem']");
+
+        // Check for date/time heading within this li
+        const dateEl = li.querySelector(".msg-s-message-list__time-heading, [class*='time-heading']");
+        if (dateEl) {
+          const dateText = dateEl.innerText.trim();
+          if (dateText && dateText.length > 0 && dateText.length < 40) {
+            messages.push(`[${dateText}]`);
           }
         }
 
-        // Try to find sender within or above this message
-        const senderEl = item.querySelector(".msg-s-message-group__name")
-          || item.querySelector(".msg-s-message-group__profile-link")
-          || item.querySelector("[class*='msg-s-message-group__name']")
-          || item.querySelector(".msg-s-event-listitem__profile-name")
-          || item.querySelector("[class*='profile-name']")
-          || item.querySelector("span[class*='msg-s-message-group']")
-          || item.querySelector("a[class*='tap-target'] span");
+        // Skip non-message li elements (loader, typing indicator, quick replies, etc.)
+        if (!eventDiv) return;
+
+        // SENDER DETECTION — 3 methods in priority order
+        // Method 1: Name element within this li (present on first message in a group)
+        let senderEl = li.querySelector(".msg-s-message-group__name")
+          || li.querySelector("[class*='message-group__name']")
+          || li.querySelector(".msg-s-message-group__profile-link")
+          || li.querySelector("[class*='profile-name']");
 
         if (senderEl) {
           lastSender = senderEl.innerText.trim().split("\n")[0].trim();
+        } else {
+          // Method 2: A11y heading (contains "X sent the following message/messages at...")
+          const a11yHeading = li.querySelector(".msg-s-event-listitem--group-a11y-heading, [class*='group-a11y-heading']");
+          if (a11yHeading) {
+            const headingText = a11yHeading.innerText.trim();
+            const match = headingText.match(/^(.+?)\s+sent the following/i);
+            if (match) {
+              lastSender = match[1].trim();
+            }
+          }
+          // Method 3: Use --other class on the event div
+          // --other = contact's message, absence = your message
+          else if (eventDiv.classList.contains("msg-s-event-listitem--other")) {
+            lastSender = contactNameFromHeader;
+          }
+          // If no --other and no name found, lastSender from previous iteration persists
+          // (correct for continuation messages from same sender)
         }
 
         // Message body
-        const bodyEl = item.querySelector(".msg-s-event-listitem__body")
-          || item.querySelector("[class*='msg-s-event-listitem__body']")
-          || item.querySelector(".msg-s-event__content")
-          || item.querySelector(".msg-s-event-listitem__message-bubble")
-          || item.querySelector("p.msg-s-event-listitem__body")
-          || item.querySelector("[class*='event-listitem__body']")
-          || item.querySelector("[class*='message-bubble']")
-          || item.querySelector("p");
+        let bodyEl = li.querySelector(".msg-s-event-listitem__body")
+          || li.querySelector("[class*='event-listitem__body']")
+          || li.querySelector(".msg-s-event__content")
+          || li.querySelector(".msg-s-event-listitem__message-bubble p")
+          || li.querySelector("p.msg-s-event-listitem__body")
+          || li.querySelector("[class*='message-bubble'] p")
+          || li.querySelector("p");
+
+        // Fallback: grab text directly from the message bubble container
+        if (!bodyEl) {
+          bodyEl = li.querySelector(".msg-s-event-listitem__message-bubble")
+            || li.querySelector("[class*='message-bubble']");
+        }
 
         if (bodyEl) {
           const body = bodyEl.innerText.trim();
@@ -429,44 +484,91 @@
       });
     }
 
-    // Strategy 2: Message groups (grouped by sender)
-    if (messages.length === 0) {
+    // Strategy 2: Message groups (grouped by sender) — also runs as supplementary pass
+    // to catch messages that Strategy 1 may have missed
+    {
       const groups = bubble.querySelectorAll(
-        ".msg-s-message-group"
+        ".msg-s-message-group, [class*='msg-s-message-group']"
       );
       groups.forEach((group) => {
-        if (scrapedEls.has(group)) return;
-        scrapedEls.add(group);
         const senderEl = group.querySelector(".msg-s-message-group__name")
           || group.querySelector("[class*='message-group__name']")
+          || group.querySelector(".msg-s-message-group__profile-link span")
           || group.querySelector("a span");
         const sender = senderEl ? senderEl.innerText.trim().split("\n")[0].trim() : "Unknown";
 
-        const bodies = group.querySelectorAll(
-          ".msg-s-event-listitem__body, [class*='event-listitem__body'], .msg-s-event__content, p"
+        // Get all message bubbles in this group, extract text from each
+        const bubbleEls = group.querySelectorAll(
+          ".msg-s-event-listitem, [class*='msg-s-event-listitem']"
         );
-        bodies.forEach((bodyEl) => {
-          const body = bodyEl.innerText.trim();
-          if (body && body.length > 0) {
-            messages.push(`${sender}: ${body}`);
+        bubbleEls.forEach((item) => {
+          if (scrapedEls.has(item)) return;
+          scrapedEls.add(item);
+          let bodyEl = item.querySelector(".msg-s-event-listitem__body")
+            || item.querySelector("[class*='event-listitem__body']")
+            || item.querySelector("[class*='message-bubble'] p")
+            || item.querySelector("[class*='message-bubble'] span[dir='ltr']")
+            || item.querySelector("p");
+          // Fallback: grab the bubble container text directly
+          if (!bodyEl) {
+            bodyEl = item.querySelector(".msg-s-event-listitem__message-bubble")
+              || item.querySelector("[class*='message-bubble']");
+          }
+          if (bodyEl) {
+            const body = bodyEl.innerText.trim();
+            if (body && body.length > 0) {
+              messages.push(`${sender}: ${body}`);
+            }
           }
         });
       });
     }
 
-    // Strategy 3: Broadest possible — any paragraph-like content in message list
-    if (messages.length === 0) {
+    // Strategy 3: Broadest possible — catch any remaining messages in the chat list
+    // This catches messages with non-standard selectors (e.g., recently sent messages,
+    // messages inside li elements without .msg-s-event-listitem class)
+    {
       const msgList = bubble.querySelector(".msg-s-message-list-content")
+        || bubble.querySelector("[class*='message-list-content']")
         || bubble.querySelector("[class*='message-list']")
         || bubble.querySelector("ul")
         || bubble;
 
-      const allPs = msgList.querySelectorAll("li p, li [class*='body'], li span[dir='ltr']");
-      allPs.forEach((p) => {
-        const text = p.innerText.trim();
-        if (text && text.length > 2) {
-          messages.push(text);
+      // Find all list items that contain message content
+      const allItems = msgList.querySelectorAll("li");
+      allItems.forEach((li) => {
+        if (scrapedEls.has(li)) return;
+
+        // Look for message body text in this list item
+        const bodyEl = li.querySelector(".msg-s-event-listitem__body")
+          || li.querySelector("[class*='event-listitem__body']")
+          || li.querySelector("[class*='message-bubble'] p")
+          || li.querySelector("[class*='message-bubble'] span[dir='ltr']")
+          || li.querySelector("[class*='message-bubble']")
+          || li.querySelector("p");
+
+        if (!bodyEl) return;
+        const body = bodyEl.innerText.trim();
+        if (!body || body.length === 0) return;
+
+        scrapedEls.add(li);
+
+        // Try to find sender — check the item, then its parent group
+        let sender = "Unknown";
+        let senderEl = li.querySelector(".msg-s-message-group__name")
+          || li.querySelector("[class*='message-group__name']")
+          || li.querySelector("[class*='profile-name']");
+        if (!senderEl) {
+          const group = li.closest(".msg-s-message-group, [class*='msg-s-message-group']");
+          if (group) {
+            senderEl = group.querySelector(".msg-s-message-group__name")
+              || group.querySelector("[class*='message-group__name']")
+              || group.querySelector(".msg-s-message-group__profile-link span");
+          }
         }
+        if (senderEl) sender = senderEl.innerText.trim().split("\n")[0].trim();
+
+        messages.push(`${sender}: ${body}`);
       });
     }
 
@@ -477,8 +579,8 @@
       if (!seen.has(m)) { seen.add(m); deduped.push(m); }
     });
 
-    // Limit to last 10 messages to save tokens
-    const recentMessages = deduped.slice(-10);
+    // Use ALL messages — AI needs full chat history for context-aware suggestions
+    const recentMessages = deduped;
 
     // Prepend date context if found
     const datePrefix = dateSet.size > 0 ? `[Conversation dates: ${[...dateSet].join(", ")}]\n` : "";
@@ -763,6 +865,9 @@
     // This allows the AI to understand corrections like "no need mention game jams"
     let conversationMemory = [];
 
+    // Cached chat data: stores the scrolled + merged chat history for this modal session
+    let _cachedChatData = null;
+
     // Find the toolbar/action bar to insert the bot button inline
     function findToolbar() {
       // For connection note modal, place bot in the modal footer (near Cancel/Send)
@@ -987,15 +1092,66 @@
       // Close all other modals first
       closeAllDropdowns();
 
-      // Build fresh modal every time (captures latest context)
-      setupModalStructure();
-      dropdown.style.display = "flex";
-
       // Reset post tracking for fresh modal session
       if (inputType === "post-modal") lastGeneratedPost = null;
 
       // Reset conversation memory for fresh session
       conversationMemory = [];
+
+      // For DM chats: scroll to load full history + merge with stored data BEFORE modal renders
+      _cachedChatData = null;
+      if (inputType === "chat") {
+        const chatBubble = anchor.closest(".msg-overlay-conversation-bubble")
+          || anchor.closest(".msg-convo-wrapper")
+          || anchor.closest("[class*='msg-overlay-conversation']")
+          || anchor.closest(".msg-conversations-container")
+          || anchor.closest("[class*='messaging']")
+          || document.querySelector(".msg-overlay-conversation-bubble")
+          || document.querySelector("[class*='messaging']");
+        await scrollToLoadFullChatHistory(chatBubble);
+
+        // Scrape chat after scrolling
+        const chat = getChatContextFromBubble(anchor);
+
+        // Merge with previously stored conversation history
+        let mergedMessages = chat.structuredMessages || [];
+        try {
+          const storedConvo = await Storage.getConversation(chat.contactName);
+          if (storedConvo && storedConvo.messages && storedConvo.messages.length > 0) {
+            const existingTexts = new Set(mergedMessages.map(m => m.text.trim().toLowerCase()));
+            const olderMessages = storedConvo.messages.filter(m =>
+              !existingTexts.has((m.text || "").trim().toLowerCase())
+            );
+            if (olderMessages.length > 0) {
+              mergedMessages = [...olderMessages, ...mergedMessages];
+            }
+          }
+        } catch (_) {}
+
+        // Save merged conversation back to storage
+        Storage.saveConversation({
+          contactName: chat.contactName,
+          messages: mergedMessages,
+          lastSenderIsMe: chat.lastSenderIsMe,
+        }).catch(() => {});
+        if (chat.contactHeadline) {
+          Storage.saveContact({ name: chat.contactName, headline: chat.contactHeadline }).catch(() => {});
+        }
+
+        // Cache for use by captureFullContext and generateAndRender
+        _cachedChatData = {
+          contactName: chat.contactName,
+          contactHeadline: chat.contactHeadline,
+          chatHistory: chat.chatHistory,
+          lastSenderIsMe: chat.lastSenderIsMe,
+          structuredMessages: mergedMessages,
+          messageDates: chat.messageDates,
+        };
+      }
+
+      // Build fresh modal every time (captures latest context)
+      setupModalStructure(_cachedChatData);
+      dropdown.style.display = "flex";
 
       // Scroll left panel chat history to bottom only for DMs
       if (inputType === "chat") {
@@ -1062,7 +1218,7 @@
     }
 
     /** Capture the full context around this bot button for the left panel display */
-    function captureFullContext() {
+    function captureFullContext(cachedChatData) {
       const sections = [];
 
       // Always show user's own profile at the top
@@ -1118,7 +1274,8 @@
         }
 
       } else if (inputType === "chat") {
-        const chat = getChatContextFromBubble(anchor);
+        // Use pre-loaded & merged chat data if available, otherwise scrape fresh
+        const chat = cachedChatData || getChatContextFromBubble(anchor);
         sections.push({
           icon: ICO.user, title: `Conversation with ${chat.contactName}`,
           type: "chat", messages: chat.structuredMessages || [],
@@ -1213,11 +1370,11 @@
     }
 
     /** Set up the modal with split-panel layout: left=context, right=suggestions */
-    function setupModalStructure() {
+    function setupModalStructure(cachedChatData) {
       const headerText = getHeaderText();
       const typeInfo = getTypeInfo();
       const needsContext = (inputType === "comment" || inputType === "reply" || inputType === "chat");
-      const contextSections = needsContext ? captureFullContext() : [];
+      const contextSections = needsContext ? captureFullContext(cachedChatData) : [];
       const contextHTML = needsContext ? renderContextHTML(contextSections) : "";
 
       const contextPanelHTML = needsContext ? `
@@ -1619,26 +1776,79 @@
           contextText = customPrompt || "";
           cacheKey = makeCacheKey("post", contextText);
         } else if (inputType === "chat") {
-          const chat = getChatContextFromBubble(anchor);
+          // Use cached chat data from modal open, or re-scrape if refreshing
+          let chat;
+          if (_cachedChatData && !forceRefresh) {
+            chat = _cachedChatData;
+          } else {
+            // Re-scrape fresh (e.g., user clicked refresh)
+            const chatBubble = anchor.closest(".msg-overlay-conversation-bubble")
+              || anchor.closest(".msg-convo-wrapper")
+              || anchor.closest("[class*='msg-overlay-conversation']")
+              || anchor.closest(".msg-conversations-container")
+              || anchor.closest("[class*='messaging']")
+              || document.querySelector(".msg-overlay-conversation-bubble")
+              || document.querySelector("[class*='messaging']");
+            await scrollToLoadFullChatHistory(chatBubble);
+            const freshChat = getChatContextFromBubble(anchor);
+
+            // Merge with stored history
+            let mergedMessages = freshChat.structuredMessages || [];
+            try {
+              const storedConvo = await Storage.getConversation(freshChat.contactName);
+              if (storedConvo && storedConvo.messages && storedConvo.messages.length > 0) {
+                const existingTexts = new Set(mergedMessages.map(m => m.text.trim().toLowerCase()));
+                const olderMessages = storedConvo.messages.filter(m =>
+                  !existingTexts.has((m.text || "").trim().toLowerCase())
+                );
+                if (olderMessages.length > 0) {
+                  mergedMessages = [...olderMessages, ...mergedMessages];
+                }
+              }
+            } catch (_) {}
+
+            chat = {
+              contactName: freshChat.contactName,
+              contactHeadline: freshChat.contactHeadline,
+              chatHistory: freshChat.chatHistory,
+              lastSenderIsMe: freshChat.lastSenderIsMe,
+              structuredMessages: mergedMessages,
+              messageDates: freshChat.messageDates,
+            };
+            // Update cached data and storage
+            _cachedChatData = chat;
+            Storage.saveConversation({
+              contactName: chat.contactName,
+              messages: mergedMessages,
+              lastSenderIsMe: chat.lastSenderIsMe,
+            }).catch(() => {});
+            if (chat.contactHeadline) {
+              Storage.saveContact({ name: chat.contactName, headline: chat.contactHeadline }).catch(() => {});
+            }
+          }
+
           headerText = chat.lastSenderIsMe
             ? `${ICO.chat} Reply to DM · Follow up with ${escapeHTML(chat.contactName)}:`
             : `${ICO.chat} Reply to DM · ${escapeHTML(chat.contactName)}:`;
-          contextText = chat.chatHistory || "";
-          cacheKey = makeCacheKey("chat", contextText + (customPrompt || ""));
 
-          // Store conversation context
-          Storage.saveConversation({
-            contactName: chat.contactName,
-            messages: chat.structuredMessages || [],
-            lastSenderIsMe: chat.lastSenderIsMe,
-          }).catch(() => {});
-          // Also store/update contact with headline if available
-          if (chat.contactHeadline) {
-            Storage.saveContact({
-              name: chat.contactName,
-              headline: chat.contactHeadline,
-            }).catch(() => {});
+          // Build full chat history string from merged messages
+          const contactLower = (chat.contactName || "").toLowerCase();
+          const contactFirst = contactLower.split(" ")[0];
+          let myNameInChat = "";
+          for (const m of (chat.structuredMessages || [])) {
+            const senderLower = (m.sender || "").toLowerCase();
+            if (!senderLower.startsWith(contactFirst) && senderLower !== contactLower && senderLower !== "unknown") {
+              myNameInChat = m.sender;
+              break;
+            }
           }
+          const mergedHistory = (chat.structuredMessages || []).map(m => {
+            const isMe = myNameInChat && m.sender === myNameInChat;
+            return `${isMe ? "You" : m.sender}: ${m.text}`;
+          }).join("\n");
+
+          contextText = mergedHistory || chat.chatHistory || "";
+          cacheKey = makeCacheKey("chat", contextText + (customPrompt || ""));
         } else if (inputType === "reply") {
           const parentComment = getParentCommentContext(anchor);
           contextText = parentComment ? parentComment.text : "";
@@ -1712,9 +1922,12 @@
               profileInfo = `Role: ${chat.contactHeadline}`;
             }
 
-            if (chat.chatHistory) {
+            // Use the full merged chat history (contextText) built in the context phase above
+            const fullHistory = contextText || chat.chatHistory || "";
+
+            if (fullHistory) {
               const data = await AI.generateDMReplies(
-                chat.chatHistory,
+                fullHistory,
                 chat.contactName, profileInfo, chat.lastSenderIsMe, customPrompt || undefined,
                 conversationMemory.length > 0 ? conversationMemory : undefined
               );

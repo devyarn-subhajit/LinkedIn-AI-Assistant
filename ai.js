@@ -20,8 +20,8 @@ const AI = (() => {
   const TOKEN_BUDGETS = {
     comment: 200,
     reply: 200,
-    dm: 600,
-    "dm-custom": 500,
+    dm: 800,
+    "dm-custom": 700,
     connection: 200,
     post: 1024,
     "post-modify": 1024,
@@ -217,12 +217,20 @@ Your messaging style:
 - You write as yourself. NEVER write as if you are ${contactName}.
 - Follow the Conversation → Problem → Insight → Offer Help → Collaboration progression. Never skip stages.
 
+CRITICAL — FULL CONTEXT AWARENESS:
+- You will receive the COMPLETE chat history, not just recent messages.
+- Before writing any reply, mentally review the ENTIRE conversation from the beginning.
+- Remember all topics discussed, questions asked, agreements made, shared interests, pain points, and commitments.
+- Never bring up something already discussed as if it's new. Never re-ask questions already answered.
+- Reference earlier parts of the conversation naturally when relevant (e.g. "btw, how did that project you mentioned go?").
+- If the conversation has been going on for a while, your reply should reflect that established relationship — not sound like a first interaction.
+
 ${SPAM_BLOCKLIST}
 
 Always return valid JSON. No markdown fences.`;
 
     // ── User prompt: the specific task ──
-    let userMsg = `Chat history ("You:" = your messages, "${contactName}:" = theirs):\n"""${chatHistory}"""\n`;
+    let userMsg = `FULL CHAT HISTORY ("You:" = your messages, "${contactName}:" = theirs):\n"""${chatHistory}"""\n\nIMPORTANT: Read and analyze the ENTIRE chat history above before responding. Understand the full conversation arc — what topics were discussed, what was agreed on, what questions were asked, what the relationship dynamic is, and where the conversation currently stands. Your reply must be contextually aware of EVERYTHING discussed, not just the last few messages.\n`;
 
     // Conversation memory: previous bot suggestions + user corrections in this session
     if (conversationMemory && conversationMemory.length > 0) {
