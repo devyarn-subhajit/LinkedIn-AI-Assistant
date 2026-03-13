@@ -36,5 +36,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Forward SCRAPE_MY_PROFILE to LinkedIn tab from popup
+  if (message.type === "SCRAPE_MY_PROFILE_FROM_POPUP") {
+    (async () => {
+      try {
+        const tabs = await chrome.tabs.query({ url: "https://www.linkedin.com/in/*" });
+        if (tabs.length === 0) {
+          sendResponse({ ok: false, error: "no_profile_tab" });
+          return;
+        }
+        // Use the first LinkedIn profile tab found
+        chrome.tabs.sendMessage(tabs[0].id, { type: "SCRAPE_MY_PROFILE" }, (resp) => {
+          if (chrome.runtime.lastError) {
+            sendResponse({ ok: false, error: chrome.runtime.lastError.message });
+          } else {
+            sendResponse(resp);
+          }
+        });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
   return false;
 });

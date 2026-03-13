@@ -2267,6 +2267,76 @@
   // Initialize storage
   Storage.open().catch((err) => console.warn("[LAI] Storage init:", err));
 
+  /**
+   * Scrape the current user's OWN LinkedIn profile page.
+   * Must be called when the user is on their own profile page.
+   * Extracts: name, headline, about, experience, services/skills.
+   */
+  function scrapeMyProfile() {
+    const result = { name: "", role: "", about: "", services: "", experience: "" };
+
+    // Name — from profile page h1
+    const nameEl = document.querySelector("h1.text-heading-xlarge")
+      || document.querySelector(".pv-text-details__left-panel h1")
+      || document.querySelector("h1[class*='text-heading']");
+    if (nameEl) {
+      result.name = nameEl.innerText.trim().split("\n")[0]
+        .replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}]/gu, "")
+        .replace(/\s*(She\/Her|He\/Him|They\/Them)\s*/gi, "")
+        .replace(/\s{2,}/g, " ").trim();
+    }
+
+    // Headline (role/title) — right below name
+    const headlineEl = document.querySelector(".text-body-medium[data-generated-suggestion-target]")
+      || document.querySelector(".pv-text-details__left-panel .text-body-medium")
+      || document.querySelector("div.text-body-medium");
+    if (headlineEl) result.role = headlineEl.innerText.trim();
+
+    // About section
+    const aboutEl = document.querySelector("#about ~ div .inline-show-more-text")
+      || document.querySelector("#about ~ div span[aria-hidden='true']")
+      || document.querySelector("section.pv-about-section .pv-about__summary-text")
+      || document.querySelector("[class*='pv-about'] span[aria-hidden='true']");
+    if (aboutEl) result.about = aboutEl.innerText.trim().slice(0, 500);
+
+    // Experience — collect job titles and company names (first 5)
+    const expItems = document.querySelectorAll("#experience ~ div .pvs-list__outer-container li.artdeco-list__item");
+    const experiences = [];
+    expItems.forEach((item, i) => {
+      if (i >= 5) return;
+      const title = item.querySelector("div.display-flex span[aria-hidden='true']")
+        || item.querySelector(".t-bold span[aria-hidden='true']");
+      const company = item.querySelector(".t-normal span[aria-hidden='true']")
+        || item.querySelector("span.t-14.t-normal span[aria-hidden='true']");
+      if (title) {
+        let entry = title.innerText.trim();
+        if (company) entry += " at " + company.innerText.trim().split(" · ")[0];
+        experiences.push(entry);
+      }
+    });
+    if (experiences.length > 0) result.experience = experiences.join("; ");
+
+    // Services / Featured section — look for "Providing services" or skills
+    const servicesEl = document.querySelector("[class*='pv-open-to-carousel'] span")
+      || document.querySelector(".pv-service-page a")
+      || document.querySelector("[href*='services']");
+    if (servicesEl) result.services = servicesEl.innerText.trim().slice(0, 300);
+
+    // Skills as fallback for services
+    if (!result.services) {
+      const skillEls = document.querySelectorAll("#skills ~ div .pvs-list__outer-container li span[aria-hidden='true']");
+      const skills = [];
+      skillEls.forEach((el, i) => {
+        if (i >= 10) return;
+        const s = el.innerText.trim();
+        if (s && s.length < 50 && !skills.includes(s)) skills.push(s);
+      });
+      if (skills.length > 0) result.services = skills.join(", ");
+    }
+
+    return result;
+  }
+
   // Message listener for popup communication
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type === "GET_STORAGE_STATS") {
@@ -2279,6 +2349,15 @@
       Storage.clearAll()
         .then(() => sendResponse({ ok: true }))
         .catch(() => sendResponse({ ok: false }));
+      return true;
+    }
+    if (msg.type === "SCRAPE_MY_PROFILE") {
+      try {
+        const profileData = scrapeMyProfile();
+        sendResponse({ ok: true, data: profileData });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
       return true;
     }
     if (msg.type === "RESCAN_BOTS") {

@@ -104,6 +104,66 @@ document.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => profileSaveMsg.classList.remove("show"), 3000);
     });
   });
+  // ── Sync from LinkedIn Profile ────────────────────
+  const syncProfileBtn = document.getElementById("syncProfileBtn");
+  const syncMsg = document.getElementById("syncMsg");
+
+  syncProfileBtn.addEventListener("click", async () => {
+    syncMsg.textContent = "";
+    syncMsg.className = "save-msg";
+
+    // Step 1: Check if user has a LinkedIn profile tab open
+    syncProfileBtn.disabled = true;
+    syncProfileBtn.textContent = "Checking...";
+
+    try {
+      // First try: send directly to any open /in/ tab
+      chrome.runtime.sendMessage({ type: "SCRAPE_MY_PROFILE_FROM_POPUP" }, (resp) => {
+        if (chrome.runtime.lastError || !resp || !resp.ok) {
+          // No profile tab open — ask user to open their profile
+          syncMsg.style.color = "#b24020";
+          syncMsg.textContent = "Please open your LinkedIn profile page first, then click Sync again.";
+          syncMsg.className = "save-msg show";
+          syncProfileBtn.disabled = false;
+          syncProfileBtn.textContent = "Sync from LinkedIn Profile";
+
+          // Open the user's profile page for them
+          chrome.tabs.create({ url: "https://www.linkedin.com/in/me/" });
+          return;
+        }
+
+        const d = resp.data;
+        // Fill fields with scraped data (only overwrite non-empty values)
+        if (d.name && !userNameInput.value.trim()) userNameInput.value = d.name;
+        if (d.role) userRoleInput.value = d.role;
+        if (d.about) companyDescInput.value = d.about.slice(0, 200);
+        if (d.services) companyServicesInput.value = d.services;
+
+        // Auto-save to storage
+        chrome.storage.local.set({
+          user_name: userNameInput.value.trim(),
+          user_role: userRoleInput.value.trim(),
+          company_description: companyDescInput.value.trim(),
+          company_services: companyServicesInput.value.trim(),
+        }, () => {
+          syncMsg.style.color = "#057642";
+          syncMsg.textContent = "Profile synced! Review the fields above and save any edits.";
+          syncMsg.className = "save-msg show";
+          setTimeout(() => { syncMsg.className = "save-msg"; }, 5000);
+        });
+
+        syncProfileBtn.disabled = false;
+        syncProfileBtn.textContent = "Sync from LinkedIn Profile";
+      });
+    } catch (e) {
+      syncMsg.style.color = "#cc1016";
+      syncMsg.textContent = "Error: " + e.message;
+      syncMsg.className = "save-msg show";
+      syncProfileBtn.disabled = false;
+      syncProfileBtn.textContent = "Sync from LinkedIn Profile";
+    }
+  });
+
   // ── AI Usage & Billing Dashboard ──────────────────
   const aiUsageBtn = document.getElementById("aiUsageBtn");
   const usageDashboards = {
