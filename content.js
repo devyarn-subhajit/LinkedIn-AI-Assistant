@@ -359,6 +359,10 @@
       ".msg-thread__link-to-profile",
       "[class*='entity-lockup'] span",
       "[data-control-name='conversation_title']",
+      // New message overlay: recipient name in the compose header area
+      ".msg-connections-typeahead__chip-text",
+      "[class*='typeahead__chip'] span",
+      "[class*='chip-text']",
       "h2",
     ]);
 
@@ -370,6 +374,9 @@
       ".msg-overlay-bubble-header__occupation",
       "[class*='bubble-header__subtitle']",
       "[class*='entity-lockup'] .msg-entity-lockup__entity-subtitle",
+      // New message overlay: headline under the profile card in compose
+      ".msg-compose__header-info .text-body-small",
+      "[class*='compose'] [class*='subtitle']",
     ]);
     const contactHeadline = headlineEl ? headlineEl.innerText.trim() : "";
 
@@ -1276,8 +1283,12 @@
       } else if (inputType === "chat") {
         // Use pre-loaded & merged chat data if available, otherwise scrape fresh
         const chat = cachedChatData || getChatContextFromBubble(anchor);
+        const hasMessages = chat.structuredMessages && chat.structuredMessages.length > 0;
+        const ctxTitle = hasMessages
+          ? `Conversation with ${chat.contactName}`
+          : `New message to ${chat.contactName}`;
         sections.push({
-          icon: ICO.user, title: `Conversation with ${chat.contactName}`,
+          icon: ICO.user, title: ctxTitle,
           type: "chat", messages: chat.structuredMessages || [],
           dates: chat.messageDates || [], contactName: chat.contactName,
         });
@@ -1342,7 +1353,7 @@
             html += `</div>`;
           });
           if (s.messages.length === 0) {
-            html += `<p style="color:#999;font-style:italic;">No messages captured yet.</p>`;
+            html += `<p style="color:#999;font-style:italic;">New conversation — no messages yet.</p>`;
           }
 
         } else if (s.type === "user-profile") {
@@ -1922,33 +1933,59 @@
               profileInfo = `Role: ${chat.contactHeadline}`;
             }
 
-            // Use the full merged chat history (contextText) built in the context phase above
+            // For new conversations (no history), try to scrape profile info from the visible page
             const fullHistory = contextText || chat.chatHistory || "";
-
-            if (fullHistory) {
-              const data = await AI.generateDMReplies(
-                fullHistory,
-                chat.contactName, profileInfo, chat.lastSenderIsMe, customPrompt || undefined,
-                conversationMemory.length > 0 ? conversationMemory : undefined
-              );
-              if (customPrompt) {
-                // User gave a prompt — show only 1 best reply
-                const singleReply = data.reply || (data.replies && data.replies[0]) || "";
-                const text = typeof singleReply === "string" ? singleReply : singleReply.text;
-                if (text) items = [{ label: "Reply", text }];
-              } else {
-                const toneLabels = ["Friendly", "Curious", "Professional"];
-                items = data.replies.slice(0, 3).map((t, i) => ({ label: toneLabels[i] || `Reply ${i + 1}`, text: typeof t === "string" ? t : t.text }));
-                // Include strategic reply if available
-                if (data.strategic) {
-                  const s = data.strategic;
-                  items.push({ label: "Strategic", text: typeof s === "string" ? s : s.text });
+            if (!fullHistory || fullHistory.trim().length === 0) {
+              // Try to get profile info from the page if we're on a profile page
+              if (!profileInfo && location.pathname.startsWith("/in/")) {
+                try {
+                  const pageProfile = getProfileInfoForConnection();
+                  if (pageProfile && pageProfile.headline) {
+                    const parts = [];
+                    parts.push(`Role: ${pageProfile.headline}`);
+                    if (pageProfile.about) parts.push(`About: ${pageProfile.about}`);
+                    profileInfo = parts.join(" | ");
+                  }
+                } catch (_) {}
+              }
+              // Also try the overlay's recipient card info
+              if (!profileInfo) {
+                const overlay = anchor.closest(".msg-overlay-conversation-bubble")
+                  || anchor.closest("[class*='msg-overlay']")
+                  || document.querySelector(".msg-overlay-conversation-bubble");
+                if (overlay) {
+                  const recipientHeadline = overlay.querySelector(".msg-entity-lockup__entity-subtitle")
+                    || overlay.querySelector("[class*='entity-lockup__subtitle']")
+                    || overlay.querySelector(".text-body-small");
+                  if (recipientHeadline) {
+                    profileInfo = `Role: ${recipientHeadline.innerText.trim()}`;
+                  }
                 }
               }
+              // Update the header to indicate it's a new message
+              headerText = `${ICO.chat} New Message · ${escapeHTML(chat.contactName)}:`;
+            }
+
+            // Generate DM replies — works for both existing conversations and new (empty) chats
+            const historyToSend = fullHistory || "(No prior messages — this is a brand new conversation.)";
+            const data = await AI.generateDMReplies(
+              historyToSend,
+              chat.contactName, profileInfo, chat.lastSenderIsMe, customPrompt || undefined,
+              conversationMemory.length > 0 ? conversationMemory : undefined
+            );
+            if (customPrompt) {
+              // User gave a prompt — show only 1 best reply
+              const singleReply = data.reply || (data.replies && data.replies[0]) || "";
+              const text = typeof singleReply === "string" ? singleReply : singleReply.text;
+              if (text) items = [{ label: "Reply", text }];
             } else {
-              items = [
-                { label: "Reply 1", text: "[Test] Lorem ipsum dolor sit amet. Add your API key for real reply suggestions." },
-              ];
+              const toneLabels = ["Friendly", "Curious", "Professional"];
+              items = data.replies.slice(0, 3).map((t, i) => ({ label: toneLabels[i] || `Reply ${i + 1}`, text: typeof t === "string" ? t : t.text }));
+              // Include strategic reply if available
+              if (data.strategic) {
+                const s = data.strategic;
+                items.push({ label: "Strategic", text: typeof s === "string" ? s : s.text });
+              }
             }
 
           } else if (inputType === "reply") {
@@ -2197,6 +2234,33 @@
     setTimeout(scan, 3000);
     setTimeout(scan, 5000);
     setTimeout(scan, 8000);
+
+    // Dedicated observer for new message overlays (e.g., clicking "Message" from connections page)
+    // These render dynamically and the main observer's debounce can miss the contenteditable
+    const msgOverlayObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (!(node instanceof HTMLElement)) continue;
+          // Check if the added node IS or CONTAINS a message overlay/form
+          const isMsgRelated = node.matches?.(
+            ".msg-overlay-conversation-bubble, [class*='msg-overlay-conversation'], .msg-form, [class*='msg-form'], [class*='msg-convo'], [class*='msg-thread']"
+          ) || node.querySelector?.(
+            ".msg-overlay-conversation-bubble, [class*='msg-overlay-conversation'], .msg-form, [class*='msg-form'], [class*='msg-convo'], [class*='msg-thread']"
+          );
+          if (isMsgRelated) {
+            // Aggressively scan multiple times as LinkedIn lazily renders the contenteditable
+            scan();
+            setTimeout(scan, 300);
+            setTimeout(scan, 700);
+            setTimeout(scan, 1200);
+            setTimeout(scan, 2000);
+            setTimeout(scan, 3500);
+            break;
+          }
+        }
+      }
+    });
+    msgOverlayObserver.observe(document.body, { childList: true, subtree: true });
 
     // Debounced observer
     let timer = null;

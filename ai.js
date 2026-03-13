@@ -193,8 +193,11 @@ Always return valid JSON. No markdown fences.`;
     const roleType = detectRoleType(profileInfo);
     const adaptiveTone = getAdaptiveToneInstruction(roleType);
     const lead = qualifyLead(profileInfo);
-    const stage = detectConversationStage(chatHistory);
-    const stageGuidance = getStageGuidance(stage, firstName);
+    const isNewConversation = !chatHistory || chatHistory.includes("No prior messages") || chatHistory.trim().length === 0;
+    const stage = isNewConversation ? "first_message" : detectConversationStage(chatHistory);
+    const stageGuidance = isNewConversation
+      ? `CONVERSATION STAGE: First Message — This is your FIRST message to ${firstName}. You have never spoken before. Write a warm, genuine introduction. Reference their profile/role to show you looked them up. Be friendly and curious about their work. Keep it short (2-3 sentences). DO NOT pretend you have history with them.`
+      : getStageGuidance(stage, firstName);
 
     // ── System prompt: defines WHO you are and HOW you write ──
     const system = `You are ${CONFIG.USER_NAME || "me"}, writing LinkedIn DMs to ${contactName}. Today: ${today}. Language: ${CONFIG.LANGUAGE}.
@@ -230,7 +233,12 @@ ${SPAM_BLOCKLIST}
 Always return valid JSON. No markdown fences.`;
 
     // ── User prompt: the specific task ──
-    let userMsg = `FULL CHAT HISTORY ("You:" = your messages, "${contactName}:" = theirs):\n"""${chatHistory}"""\n\nIMPORTANT: Read and analyze the ENTIRE chat history above before responding. Understand the full conversation arc — what topics were discussed, what was agreed on, what questions were asked, what the relationship dynamic is, and where the conversation currently stands. Your reply must be contextually aware of EVERYTHING discussed, not just the last few messages.\n`;
+    let userMsg;
+    if (isNewConversation) {
+      userMsg = `This is a BRAND NEW conversation with ${contactName}. You have NEVER messaged each other before.\n${profileInfo ? `Their profile info: ${profileInfo}` : ""}\n\nWrite the very first message to start a conversation. Be warm, genuine, and reference something specific about their profile or role. Do NOT pretend you know them already.\n`;
+    } else {
+      userMsg = `FULL CHAT HISTORY ("You:" = your messages, "${contactName}:" = theirs):\n"""${chatHistory}"""\n\nIMPORTANT: Read and analyze the ENTIRE chat history above before responding. Understand the full conversation arc — what topics were discussed, what was agreed on, what questions were asked, what the relationship dynamic is, and where the conversation currently stands. Your reply must be contextually aware of EVERYTHING discussed, not just the last few messages.\n`;
+    }
 
     // Conversation memory: previous bot suggestions + user corrections in this session
     if (conversationMemory && conversationMemory.length > 0) {
@@ -252,7 +260,9 @@ Always return valid JSON. No markdown fences.`;
       userMsg += `\nWrite 1 best reply. Return: {"reply": "your message"}`;
     } else {
       // Situation-aware auto-generation
-      if (lastSenderIsMe) {
+      if (isNewConversation) {
+        userMsg += `\nThis is your FIRST message ever to ${firstName}. Write a warm, personalized introduction:\n- Reference their role/headline to show you checked their profile\n- Be genuinely curious about their work\n- Keep it short (2-3 sentences max)\n- Don't be salesy or formal — be human\n`;
+      } else if (lastSenderIsMe) {
         userMsg += `\nYou sent the last message and ${firstName} hasn't replied yet. Follow up naturally:\n- If you asked something → give them time, maybe add context\n- If you answered their question → ask them something back\n- If you both agreed to something → suggest a specific next step\n- NEVER repeat what you already said. NEVER re-greet.\n`;
       } else {
         userMsg += `\n${firstName} sent the last message. Respond to what THEY said:\n- Question → answer naturally\n- Greeting → greet back, start a conversation\n- Info shared → acknowledge and engage\n`;
@@ -736,7 +746,20 @@ Always return valid JSON. No markdown fences.`;
     },
 
     async generateDMReplies(chatHistory, contactName, profileInfo, lastSenderIsMe, customPrompt, conversationMemory) {
-      if (isDemoMode()) return DEMO.dmReplies;
+      if (isDemoMode()) {
+        // Even in demo mode, show a more helpful message instead of lorem ipsum
+        const isNew = !chatHistory || chatHistory.includes("No prior messages") || chatHistory.trim().length === 0;
+        if (isNew) {
+          return {
+            replies: [
+              `[Demo] Hi ${contactName.split(" ")[0]}, I'd love to connect! Add your API key in extension settings for real AI-generated messages.`,
+              `[Demo] Hey ${contactName.split(" ")[0]}! No API key configured — set one up in the extension popup for personalized message suggestions.`,
+            ],
+            strategic: ""
+          };
+        }
+        return DEMO.dmReplies;
+      }
       const prompt = buildDMReplyPrompt(chatHistory, contactName, profileInfo, lastSenderIsMe, customPrompt, conversationMemory);
       const budget = customPrompt ? getTokenBudget("dm-custom") : getTokenBudget("dm");
       const raw = await callAI(prompt, budget);
