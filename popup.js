@@ -112,6 +112,61 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // ── Check for Updates from GitHub ────────────────
+  const updateBtn = document.getElementById("updateBtn");
+  const updateStatusEl = document.getElementById("updateStatus");
+  const GITHUB_REPO = "devyarn-subhajit/LinkedIn-AI-Assistant";
+  const GITHUB_MANIFEST_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/manifest.json`;
+  const GITHUB_REPO_URL = `https://github.com/${GITHUB_REPO}`;
+  const currentVersion = chrome.runtime.getManifest().version;
+
+  updateBtn.addEventListener("click", async () => {
+    updateBtn.classList.add("checking");
+    updateBtn.innerHTML = '<span class="" style="display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite;vertical-align:-2px;margin-right:6px"></span>Checking…';
+    updateStatusEl.className = "update-status";
+    updateStatusEl.style.display = "none";
+
+    try {
+      const res = await fetch(GITHUB_MANIFEST_URL, { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to fetch");
+      const remote = await res.json();
+      const remoteVersion = remote.version;
+
+      if (compareVersions(remoteVersion, currentVersion) > 0) {
+        updateStatusEl.textContent = `Update available: v${remoteVersion} (current: v${currentVersion})`;
+        updateStatusEl.className = "update-status show has-update";
+        updateBtn.innerHTML = '<svg style="width:13px;height:13px;vertical-align:-2px;margin-right:4px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download Update';
+        updateBtn.classList.remove("checking");
+        updateBtn.onclick = () => chrome.tabs.create({ url: GITHUB_REPO_URL });
+      } else {
+        updateStatusEl.textContent = `You're up to date! (v${currentVersion})`;
+        updateStatusEl.className = "update-status show success";
+        resetUpdateBtn();
+      }
+    } catch (e) {
+      updateStatusEl.textContent = "Could not check for updates. Try again later.";
+      updateStatusEl.className = "update-status show info";
+      resetUpdateBtn();
+    }
+  });
+
+  function resetUpdateBtn() {
+    updateBtn.classList.remove("checking");
+    updateBtn.innerHTML = '<svg style="width:13px;height:13px;vertical-align:-2px;margin-right:4px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>Check for Updates';
+  }
+
+  function compareVersions(a, b) {
+    const pa = a.split(".").map(Number);
+    const pb = b.split(".").map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const na = pa[i] || 0;
+      const nb = pb[i] || 0;
+      if (na > nb) return 1;
+      if (na < nb) return -1;
+    }
+    return 0;
+  }
+
   // ── Status indicator ──────────────────────────────
   function updateStatus(apiKey) {
     if (apiKey) {
