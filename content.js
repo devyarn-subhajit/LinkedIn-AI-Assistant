@@ -1938,20 +1938,15 @@
         ".comments-comment-texteditor, " +
         ".comments-comment-box, " +
         "[class*='comments-comment-box'], " +
-        "[class*='comments-comment-texteditor']"
+        "[class*='comments-comment-texteditor'], " +
+        ".comments-comment-box .ql-editor, " +
+        ".comments-comment-box [contenteditable='true'], " +
+        ".comments-comment-box [role='textbox']"
       ).forEach((el) => {
         if (el.dataset.laiBotDone) return;
         if (el.querySelector(".lai-inline-bot-btn")) return;
         if (el.closest("[data-lai-bot-done='true']")) return;
-        const post = el.closest(".feed-shared-update-v2")
-          || el.closest("[data-urn*='activity']")
-          || el.closest(".occludable-update")
-          || el.closest("article");
-        const key = post ? (post.dataset.urn || post) : el;
-        if (!seen.has(key)) {
-          seen.add(key);
-          injectBot(el);
-        }
+        injectBot(el);
       });
 
       // ── 5. Reply boxes under comments (child comments) ──
@@ -2023,6 +2018,29 @@
       scan();
       setTimeout(scan, 800);
       setTimeout(scan, 2000);
+    });
+
+    // Listen for focus events on comment/message inputs — handles
+    // LinkedIn expanding a collapsed "Add a comment..." box on click
+    document.addEventListener("focusin", (e) => {
+      const target = e.target;
+      if (!target) return;
+      const isEditable = target.isContentEditable
+        || target.getAttribute("role") === "textbox"
+        || target.tagName === "TEXTAREA";
+      if (!isEditable) return;
+      // Only act on comment/reply/message areas
+      const inCommentArea = target.closest(".comments-comment-box")
+        || target.closest("[class*='comments-comment-box']")
+        || target.closest(".comments-comment-texteditor")
+        || target.closest("[class*='comments-comment-texteditor']")
+        || target.closest(".msg-form")
+        || target.closest("[class*='msg-form']")
+        || target.closest("[role='dialog']");
+      if (!inCommentArea) return;
+      // Short delay to let LinkedIn finish rendering the expanded editor
+      setTimeout(scan, 200);
+      setTimeout(scan, 600);
     });
 
     // Periodic re-scan as fallback (LinkedIn SPA navigation)
