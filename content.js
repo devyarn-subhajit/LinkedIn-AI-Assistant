@@ -1850,8 +1850,7 @@
   /**
    * Scan and inject bots into all relevant input areas.
    */
-  function startBotWatcher() {
-    function scan() {
+  function scan() {
       const seen = new Set();
 
       // ── 1. Post creation modal ──────────────────────
@@ -1977,8 +1976,9 @@
         if (el.closest("[data-lai-bot-done='true']")) return;
         injectBot(el);
       });
-    }
+  }
 
+  function startBotWatcher() {
     // Initial scan (wait for LinkedIn to render)
     setTimeout(scan, 1500);
     setTimeout(scan, 3000);
@@ -2066,6 +2066,22 @@
       Storage.clearAll()
         .then(() => sendResponse({ ok: true }))
         .catch(() => sendResponse({ ok: false }));
+      return true;
+    }
+    if (msg.type === "RESCAN_BOTS") {
+      // Remove existing bot markers and UI so they get re-injected
+      document.querySelectorAll("[data-lai-bot-done]").forEach(el => {
+        delete el.dataset.laiBotDone;
+        injectedElements.delete(el);
+      });
+      document.querySelectorAll(".lai-inline-bot-btn").forEach(el => el.remove());
+      document.querySelectorAll(".lai-modal-overlay").forEach(el => el.remove());
+      allBotEntries.length = 0;
+      // Run scan immediately + follow-up scans for lazy-rendered content
+      scan();
+      setTimeout(scan, 500);
+      setTimeout(scan, 1500);
+      sendResponse({ ok: true });
       return true;
     }
   });
