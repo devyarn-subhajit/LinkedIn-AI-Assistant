@@ -25,27 +25,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const saveProfileBtn = document.getElementById("saveProfileBtn");
   const profileSaveMsg = document.getElementById("profileSaveMsg");
 
-  // ── Refresh bot button ─────────────────────────────
-  const refreshBotBtn = document.getElementById("refreshBotBtn");
-  refreshBotBtn.addEventListener("click", () => {
-    refreshBotBtn.classList.add("spinning");
-    refreshBotBtn.disabled = true;
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const tab = tabs[0];
-      if (tab && tab.url && tab.url.includes("linkedin.com")) {
-        chrome.tabs.sendMessage(tab.id, { type: "RESCAN_BOTS" }, () => {
-          setTimeout(() => {
-            refreshBotBtn.classList.remove("spinning");
-            refreshBotBtn.disabled = false;
-          }, 800);
-        });
-      } else {
-        refreshBotBtn.classList.remove("spinning");
-        refreshBotBtn.disabled = false;
-      }
-    });
-  });
-
   // ── Load saved settings ─────────────────────────────
   chrome.storage.local.get(
     ["ai_provider", "ai_api_key", "ai_language", "ai_my_language",
