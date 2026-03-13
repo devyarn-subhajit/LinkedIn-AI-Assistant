@@ -6,8 +6,9 @@
 (() => {
   "use strict";
 
-  // Prevent double-injection
-  if (document.querySelector(".lai-inline-bot-btn")) return;
+  // Prevent double-injection of the entire script
+  if (window.__laiContentScriptLoaded) return;
+  window.__laiContentScriptLoaded = true;
 
   // Inject Google Fonts (Inter + DM Sans, weight 400-700)
   if (!document.querySelector('link[href*="fonts.googleapis.com/css2?family=Inter"]')) {
@@ -2002,6 +2003,26 @@
     observer.observe(document.body, {
       childList: true,
       subtree: true,
+    });
+
+    // Detect LinkedIn SPA navigation (URL changes without page reload)
+    let lastUrl = location.href;
+    const urlWatcher = setInterval(() => {
+      if (location.href !== lastUrl) {
+        lastUrl = location.href;
+        // URL changed — immediate scan + follow-up scans for lazy-rendered content
+        scan();
+        setTimeout(scan, 800);
+        setTimeout(scan, 2000);
+      }
+    }, 500);
+
+    // Also listen for popstate (browser back/forward)
+    window.addEventListener("popstate", () => {
+      lastUrl = location.href;
+      scan();
+      setTimeout(scan, 800);
+      setTimeout(scan, 2000);
     });
 
     // Periodic re-scan as fallback (LinkedIn SPA navigation)
